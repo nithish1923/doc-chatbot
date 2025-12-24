@@ -1,89 +1,82 @@
 import streamlit as st
-import uuid
 from utils import process_files
 from rag import build_vector_store, create_conversation_chain
 
-st.set_page_config(page_title="Multi-Docs Chatbot", layout="centered")
-st.title("📄 Multi-Docs Conversational Chatbot")
+st.set_page_config(page_title="Doc Chatbot", layout="centered")
 
-# ------------------ Session State ------------------
-if "vectorstore" not in st.session_state:
-    st.session_state.vectorstore = None
+st.title("📄 Document Chatbot")
 
-if "sessions" not in st.session_state:
-    st.session_state.sessions = {}
+# ---------------- SESSION STATE ----------------
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-if "current_session" not in st.session_state:
-    st.session_state.current_session = None
+if "conversation" not in st.session_state:
+    st.session_state.conversation = None
 
-# ------------------ Upload Section ------------------
+# ---------------- FILE UPLOAD ----------------
 uploaded_files = st.file_uploader(
     "Upload DOCX files",
-    type=["docx", "DOCX"],
+    type=["docx"],
     accept_multiple_files=True
 )
 
-if st.button("✅ OK – Process Documents"):
-    if uploaded_files:
-        with st.spinner("Indexing documents..."):
-            docs = process_files(uploaded_files)
-            st.session_state.vectorstore = build_vector_store(docs)
-            st.session_state.sessions = {}
-            st.session_state.current_session = None
-        st.success("Documents indexed successfully!")
+if uploaded_files and st.button("OK"):
+    with st.spinner("Processing documents..."):
+        docs = process_files(uploaded_files)
+        vectorstore = build_vector_store(docs)
+        st.session_state.conversation = create_conversation_chain(vectorstore)
+        st.success("Documents processed. Start chatting!")
 
-st.divider()
+# ---------------- DISPLAY CHAT HISTORY ----------------
+for role, message in st.session_state.chat_history:
+    with st.chat_message(role):
+        st.markdown(message)
 
-# ------------------ Session Controls ------------------
-if st.session_state.vectorstore:
-    col1, col2 = st.columns(2)
+# ---------------- CHAT INPUT ----------------
+user_input = st.chat_input("Ask a question...")
 
-    with col1:
-        if st.button("➕ New Chat Session"):
-            session_id = str(uuid.uuid4())[:8]
-            st.session_state.sessions[session_id] = {
-                "chain": create_conversation_chain(st.session_state.vectorstore),
-                "chat_history": []
-            }
-            st.session_state.current_session = session_id
+# ---------------- GREETING HANDLER ----------------
+def is_greeting(text):
+    greetings = ["hi", "hello", "hey", "thanks", "thank you"]
+    return text.lower().strip() in greetings
 
-    with col2:
-        if st.session_state.sessions:
-            st.session_state.current_session = st.selectbox(
-                "Switch Session",
-                options=list(st.session_state.sessions.keys()),
-                index=0
-            )
+if user_input:
+    # Show user message
+    st.session_state.chat_history.append(("user", user_input))
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-# ------------------ Chat UI ------------------
-if st.session_state.current_session:
-    session = st.session_state.sessions[st.session_state.current_session]
-
-    user_question = st.chat_input("Ask from documentation")
-
-    if user_question:
-        response = session["chain"]({
-            "question": user_question,
-            "chat_history": session["chat_history"]
-        })
-
-        session["chat_history"].append(
-            (user_question, response["answer"])
-        )
-
-        # Display conversation
-        with st.chat_message("user"):
-            st.markdown(user_question)
-
+    # Greeting response
+    if is_greeting(user_input):
+        response = "Hi 👋 I'm ready! Ask me anything about your uploaded documents."
+        st.session_state.chat_history.append(("assistant", response))
         with st.chat_message("assistant"):
-            st.markdown("### ✅ Answer")
-            st.markdown(response["answer"])
+            st.markdown(response)
 
-            st.markdown("### 📌 Evidence")
-            for doc in response["source_documents"]:
-                st.markdown(
-                    f"**File:** `{doc.metadata['source']}`\n\n"
-                    f"> {doc.page_content}"
-                )
-else:
-    st.info("Upload documents and start a new chat session.")
+    # Document-based QA
+    elif st.session_state.conversation:
+        with st.spinner("Thinking..."):
+            result = st.session_state.conversation({
+                "question": user_input,
+                "chat_history": st.session_state.chat_history
+            })
+
+            answer = result["answer"]
+
+            # Source attribution
+            sources = set()
+            for doc in result.get("source_documents", []):
+                sources.add(doc.metadata.get("source", "Unknown"))
+
+            if sources:
+                answer += "\n\n**Sources:**\n" + "\n".join(f"- {s}" for s in sources)
+
+            st.session_state.chat_history.append(("assistant", answer))
+            with st.chat_message("assistant"):
+                st.markdown(answer)
+
+    else:
+        msg = "Please upload documents and click OK before asking questions."
+        st.session_state.chat_history.append(("assistant", msg))
+        with st.chat_message("assistant"):
+            st.markdown(msg)
