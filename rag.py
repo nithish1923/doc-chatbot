@@ -1,9 +1,10 @@
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import Chroma
+from langchain_openai import ChatOpenAI
 from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
 from langchain.schema import Document
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
+import tempfile
 
 
 def build_vector_store(documents):
@@ -17,7 +18,14 @@ def build_vector_store(documents):
 
     embeddings = OpenAIEmbeddings()
 
-    return FAISS.from_documents(docs, embeddings)
+    # Temporary in-memory DB (safe for Streamlit)
+    persist_dir = tempfile.mkdtemp()
+
+    return Chroma.from_documents(
+        docs,
+        embedding=embeddings,
+        persist_directory=persist_dir
+    )
 
 
 def create_conversation_chain(vectorstore):
