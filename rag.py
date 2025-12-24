@@ -1,5 +1,5 @@
 from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import Document
 from langchain.chains import ConversationalRetrievalChain
@@ -15,9 +15,7 @@ def build_vector_store(documents):
         for d in documents
     ]
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2"
-    )
+    embeddings = OpenAIEmbeddings()
 
     return FAISS.from_documents(docs, embeddings)
 
