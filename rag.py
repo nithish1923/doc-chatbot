@@ -1,9 +1,10 @@
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
+
 
 def build_vector_store(documents):
     docs = [
@@ -19,6 +20,7 @@ def build_vector_store(documents):
     )
 
     return FAISS.from_documents(docs, embeddings)
+
 
 def create_conversation_chain(vectorstore):
     llm = ChatOpenAI(
