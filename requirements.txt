@@ -1,0 +1,7 @@
+streamlit
+faiss-cpu
+sentence-transformers
+python-docx
+langchain
+langchain-community
+langchain-openai
