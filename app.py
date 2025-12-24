@@ -1,10 +1,11 @@
 import streamlit as st
+import json
 from utils import process_files
 from rag import build_vector_store, create_conversation_chain
 from langchain_openai import ChatOpenAI
 
-st.set_page_config(page_title="Document Chatbot", layout="centered")
-st.title("📄 DOCX Chatbot")
+st.set_page_config(page_title="DOCX Chatbot", layout="centered")
+st.title("📄 Document Chatbot")
 
 # ---------------- SESSION STATE ----------------
 if "chat_history" not in st.session_state:
@@ -13,51 +14,56 @@ if "chat_history" not in st.session_state:
 if "conversation" not in st.session_state:
     st.session_state.conversation = None
 
-# Small-talk LLM (separate from RAG)
+# ---------------- LLMs ----------------
+intent_llm = ChatOpenAI(
+    model_name="gpt-3.5-turbo",
+    temperature=0
+)
+
 chat_llm = ChatOpenAI(
     model_name="gpt-3.5-turbo",
     temperature=0.7
 )
 
-# ---------------- HELPERS ----------------
-def is_greeting(text):
-    return text.lower().strip() in ["hi", "hello", "hey"]
-
-def is_small_talk(text):
-    phrases = [
-        "how are you",
-        "how r you",
-        "how's it going",
-        "what's up",
-        "good morning",
-        "good evening",
-        "good afternoon",
-        "thanks",
-        "thank you"
-    ]
-    text = text.lower()
-    return any(p in text for p in phrases)
-
-def is_conversation_question(text):
-    keywords = [
-        "last response",
-        "previous response",
-        "what did you say",
-        "last answer",
-        "previous answer"
-    ]
-    text = text.lower()
-    return any(k in text for k in keywords)
-
-def chatgpt_style_reply(user_input):
+# ---------------- INTENT DETECTION ----------------
+def detect_intent(user_input):
     prompt = f"""
-You are a friendly, polite, human-like assistant.
-Respond naturally and briefly like ChatGPT.
+Classify the user message into one intent and confidence.
+
+Allowed intents:
+- small_talk
+- conversation_meta
+- document_question
+- unknown
+
+Return JSON only:
+{{
+  "intent": "<intent>",
+  "confidence": <number between 0 and 1>
+}}
+
+User message:
+"{user_input}"
+"""
+    raw = intent_llm.invoke(prompt).content
+
+    try:
+        data = json.loads(raw)
+        return data["intent"], float(data["confidence"])
+    except Exception:
+        return "unknown", 0.0
+
+
+def chatgpt_reply(user_input):
+    prompt = f"""
+You are a friendly, natural assistant like ChatGPT.
+Respond politely and briefly.
 
 User: {user_input}
 Assistant:
 """
     return chat_llm.invoke(prompt).content
+
 
 # ---------------- FILE UPLOAD ----------------
 uploaded_files = st.file_uploader(
@@ -68,45 +74,46 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files and st.button("OK"):
     with st.spinner("Processing documents..."):
-        docs = process_files(uploaded_files)
-        vectorstore = build_vector_store(docs)
+        chunks = process_files(uploaded_files)
+        vectorstore = build_vector_store(chunks)
         st.session_state.conversation = create_conversation_chain(vectorstore)
-        st.success("Documents processed. You can start chatting!")
+        st.success("Documents processed. Start chatting!")
 
 # ---------------- DISPLAY CHAT ----------------
-for role, message in st.session_state.chat_history:
+for role, msg in st.session_state.chat_history:
     with st.chat_message(role):
-        st.markdown(message)
+        st.markdown(msg)
 
 # ---------------- CHAT INPUT ----------------
 user_input = st.chat_input("Type a message...")
 
 if user_input:
-    # Store user message
     st.session_state.chat_history.append(("user", user_input))
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # 1️⃣ Greeting
-    if is_greeting(user_input):
-        response = "Hi 👋 How can I help you today?"
+    intent, confidence = detect_intent(user_input)
 
-    # 2️⃣ Small talk (ChatGPT-style)
-    elif is_small_talk(user_input):
-        response = chatgpt_style_reply(user_input)
+    # Uncomment for debugging
+    # st.caption(f"DEBUG → intent={intent}, confidence={confidence}")
 
-    # 3️⃣ Conversation-aware questions
-    elif is_conversation_question(user_input):
-        previous_answers = [
+    # 1️⃣ Small talk
+    if intent == "small_talk" and confidence >= 0.6:
+        response = chatgpt_reply(user_input)
+
+    # 2️⃣ Conversation memory
+    elif intent == "conversation_meta" and confidence >= 0.6:
+        previous = [
             msg for role, msg in st.session_state.chat_history
             if role == "assistant"
         ]
-        if previous_answers:
-            response = f"Here’s my previous response:\n\n{previous_answers[-1]}"
-        else:
-            response = "There isn’t a previous response yet."
+        response = (
+            f"Here’s my previous response:\n\n{previous[-1]}"
+            if previous else
+            "There isn’t a previous response yet."
+        )
 
-    # 4️⃣ Document-based QA (RAG)
+    # 3️⃣ Document QA (default fallback)
     elif st.session_state.conversation:
         with st.spinner("Thinking..."):
             result = st.session_state.conversation({
@@ -124,11 +131,9 @@ if user_input:
             if sources:
                 response += "\n\n**Sources:**\n" + "\n".join(f"- {s}" for s in sources)
 
-    # 5️⃣ No docs uploaded
     else:
-        response = "Please upload documents and click OK before asking document-related questions."
+        response = "Please upload documents and click OK first."
 
-    # Store assistant response
     st.session_state.chat_history.append(("assistant", response))
     with st.chat_message("assistant"):
         st.markdown(response)
