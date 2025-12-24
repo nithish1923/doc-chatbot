@@ -1,17 +1,17 @@
 import streamlit as st
 import json
+from datetime import datetime
 from utils import process_files
 from rag import build_vector_store, create_conversation_chain
 from langchain_openai import ChatOpenAI
 from langchain.callbacks.base import BaseCallbackHandler
 
 st.set_page_config(page_title="DOCX Chatbot", layout="centered")
-st.title("📄 Document Chatbot with Multi-Session & Streaming")
+st.title("📄 ChatGPT-like Document Chatbot")
 
 # ---------------- SESSION STATE ----------------
 if "sessions" not in st.session_state:
     st.session_state.sessions = {}
-
 if "current_session" not in st.session_state:
     st.session_state.current_session = "default"
 
@@ -62,13 +62,28 @@ User message:
     except Exception:
         return "unknown", 0.0
 
-def chatgpt_reply(user_input):
+def chatgpt_reply(user_input, chat_history=None):
+    history_text = ""
+    if chat_history:
+        for role, msg in chat_history:
+            if role == "user":
+                history_text += f"User: {msg}\n"
+            else:
+                history_text += f"Assistant: {msg}\n"
     prompt = f"""
 You are a friendly, human-like assistant.
-Respond politely and naturally.
+Answer naturally and include references to previous conversation like "As I said before..." when relevant.
 
-User: {user_input}
-Assistant:
+Conversation history:
+{history_text}
+
+Current user message:
+{user_input}
+
+Respond naturally, using:
+- **Bold** for key points
+- *Italics* for hints
+- `code blocks` for code answers
 """
     return chat_llm.invoke(prompt).content
 
@@ -101,52 +116,84 @@ if uploaded_files and st.button("OK"):
         st.success("Documents processed. You can start chatting!")
 
 # ---------------- DISPLAY CHAT ----------------
-for role, msg in current["chat_history"]:
-    with st.chat_message(role):
-        st.markdown(msg)
+def display_chat_history(history):
+    for role, msg, timestamp in history:
+        with st.chat_message(role):
+            st.markdown(msg)
+            st.caption(timestamp)
+
+# Display existing chat
+if current["chat_history"]:
+    display_chat_history(current["chat_history"])
 
 # ---------------- CHAT INPUT ----------------
 user_input = st.chat_input("Type a message...")
 
 if user_input:
-    current["chat_history"].append(("user", user_input))
+    timestamp = datetime.now().strftime("%I:%M %p")
+    current["chat_history"].append(("user", user_input, timestamp))
     with st.chat_message("user"):
         st.markdown(user_input)
+        st.caption(timestamp)
 
     intent, confidence = detect_intent(user_input)
 
-    # ---------------- ROUTING ----------------
+    # Prepare streaming container
+    container = st.empty()
+    callback = StreamlitCallbackHandler(container)
+
     # 1️⃣ Small talk
     if intent == "small_talk" and confidence >= 0.6:
-        response = chatgpt_reply(user_input)
+        response = chatgpt_reply(user_input, chat_history=current["chat_history"])
+        current["chat_history"].append(("assistant", response, timestamp))
+        with st.chat_message("assistant"):
+            st.markdown(response)
+            st.caption(timestamp)
 
-    # 2️⃣ Conversation memory
+    # 2️⃣ Conversation memory / previous responses
     elif intent == "conversation_meta" and confidence >= 0.6:
-        previous = [msg for role, msg in current["chat_history"] if role=="assistant"]
-        response = f"Here’s my previous response:\n\n{previous[-1]}" if previous else "No previous response yet."
+        previous = [msg for role, msg, _ in current["chat_history"] if role=="assistant"]
+        response = previous[-1] if previous else "No previous response yet."
+        current["chat_history"].append(("assistant", response, timestamp))
+        with st.chat_message("assistant"):
+            st.markdown(response)
+            st.caption(timestamp)
 
     # 3️⃣ Document QA
     elif current["conversation"]:
-        container = st.empty()  # streaming container
-        callback = StreamlitCallbackHandler(container)
         result = current["conversation"](
             {"question": user_input, "chat_history": current["chat_history"]},
             callbacks=[callback]
         )
-        # Final response (ensure sources + paragraph highlight)
         response = result["answer"]
+
+        # Collapsible sources
         sources = []
         for doc in result.get("source_documents", []):
             para_index = doc.metadata.get("paragraph_index", "?")
             src = f"{doc.metadata.get('source','Unknown')} (Paragraph {para_index})"
             sources.append(src)
+
         if sources:
-            response += "\n\n**Sources:**\n" + "\n".join(f"- {s}" for s in sources)
+            response += "\n\n<details><summary>Sources</summary>\n\n" + "\n".join(f"- {s}" for s in sources) + "\n</details>"
+
+        current["chat_history"].append(("assistant", response, timestamp))
+        with st.chat_message("assistant"):
+            st.markdown(response)
+            st.caption(timestamp)
 
     # 4️⃣ Fallback
     else:
         response = "I’m not sure what you mean. Please upload documents or rephrase."
+        current["chat_history"].append(("assistant", response, timestamp))
+        with st.chat_message("assistant"):
+            st.markdown(response)
+            st.caption(timestamp)
 
-    current["chat_history"].append(("assistant", response))
-    with st.chat_message("assistant"):
-        st.markdown(response)
+# ---------------- AUTO-SUMMARIZE LONG HISTORY ----------------
+MAX_HISTORY = 20  # Max messages to keep
+if len(current["chat_history"]) > MAX_HISTORY:
+    summary_prompt = "\n".join([msg for _, msg, _ in current["chat_history"]])
+    summary = chat_llm.invoke(f"Summarize the following conversation into a short context for future answers:\n\n{summary}").content
+    # Keep only summary + last few messages
+    current["chat_history"] = [("assistant", summary, timestamp)] + current["chat_history"][-10:]
