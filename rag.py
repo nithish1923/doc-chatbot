@@ -2,7 +2,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
-from langchain.chains import ConversationalRetrievalChain
+from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 
 
@@ -31,12 +31,11 @@ def create_conversation_chain(vectorstore):
     system_prompt = """
 You are a helpful documentation assistant.
 
-Guidelines:
-- Answer in a natural, human, conversational tone.
+Rules:
+- Speak in a natural, human tone.
 - Be clear and concise.
-- Explain like you are talking to a developer or analyst.
-- Use ONLY the provided document context.
-- If something is not present in the documents, say so clearly.
+- Answer ONLY from the document context.
+- If information is missing, say so clearly.
 """
 
     qa_prompt = PromptTemplate(
