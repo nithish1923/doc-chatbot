@@ -2,28 +2,22 @@ from docx import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
-def read_docx(file):
-    doc = Document(file)
-    return "\n".join([p.text for p in doc.paragraphs])
-
-def chunk_text(text):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=100
-    )
-    return splitter.split_text(text)
-
 def process_files(files):
-    documents = []
+    all_chunks = []
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=150
+    )
 
     for file in files:
-        text = read_docx(file)
-        chunks = chunk_text(text)
+        doc = Document(file)
+        full_text = "\n".join(p.text for p in doc.paragraphs)
 
+        chunks = splitter.split_text(full_text)
         for chunk in chunks:
-            documents.append({
+            all_chunks.append({
                 "text": chunk,
                 "source": file.name
             })
 
-    return documents
+    return all_chunks
