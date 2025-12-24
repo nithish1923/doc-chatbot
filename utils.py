@@ -1,5 +1,6 @@
 from docx import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
 
 def read_docx(file):
     doc = Document(file)
