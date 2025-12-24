@@ -7,13 +7,13 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 
 
-def build_vector_store(documents):
+def build_vector_store(chunks):
     docs = [
         Document(
-            page_content=d["text"],
-            metadata={"source": d["source"]}
+            page_content=c["text"],
+            metadata={"source": c["source"]}
         )
-        for d in documents
+        for c in chunks
     ]
 
     embeddings = OpenAIEmbeddings()
@@ -35,12 +35,12 @@ def create_conversation_chain(vectorstore):
     prompt = PromptTemplate(
         input_variables=["context", "question"],
         template="""
-You are a helpful documentation assistant.
+You are a documentation assistant.
 
 Rules:
-- Answer only from the provided documents.
-- Be clear and professional.
-- If information is not present, say so.
+- Answer ONLY using the provided documents.
+- Be clear and concise.
+- If information is missing, say so.
 
 Context:
 {context}
