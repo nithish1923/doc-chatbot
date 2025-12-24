@@ -1,8 +1,8 @@
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_openai import ChatOpenAI
-from langchain_core.documents import Document
-from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
+from langchain.vectorstores import FAISS
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain.schema import Document
+from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 
 
@@ -24,7 +24,7 @@ def build_vector_store(documents):
 
 def create_conversation_chain(vectorstore):
     llm = ChatOpenAI(
-        model="gpt-3.5-turbo",
+        model_name="gpt-3.5-turbo",
         temperature=0.25
     )
 
@@ -32,10 +32,9 @@ def create_conversation_chain(vectorstore):
 You are a helpful documentation assistant.
 
 Rules:
-- Speak in a natural, human tone.
-- Be clear and concise.
-- Answer ONLY from the document context.
-- If information is missing, say so clearly.
+- Speak naturally and clearly.
+- Answer ONLY from the provided documents.
+- If information is missing, say so.
 """
 
     qa_prompt = PromptTemplate(
